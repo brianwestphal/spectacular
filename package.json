@@ -1,15 +1,32 @@
 {
-  "name": "spc",
-  "version": "0.1.0",
-  "description": "CLI tool for the Spectacular specification language",
+  "name": "spectacular-lang",
+  "version": "0.1.0-beta.1",
+  "description": "A layered specification language for defining software as a human- and AI-readable source of truth",
   "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "specification",
+    "spec",
+    "software-design",
+    "layered",
+    "ai",
+    "code-generation",
+    "cross-platform"
+  ],
   "bin": {
     "spc": "./dist/cli.js"
   },
+  "files": [
+    "dist/",
+    "language-spec.md",
+    "AI.md"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run lint && npm run build",
     "dev": "tsx src/cli.ts",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -28,5 +45,8 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

@@ -11,7 +11,7 @@ import { diffSpecs } from './differ.js';
 import { formatAnalysis, formatDiff, formatSpecFile } from './formatter.js';
 import { findProjectRoot } from './parser.js';
 import { listVariants, resolveBase, resolveVariant } from './resolver.js';
-import type { AIProvider, CheckType } from './types.js';
+import type { AIProvider, AnalysisResult, CheckType } from './types.js';
 
 const program = new Command();
 
@@ -20,6 +20,57 @@ program
   .description('CLI tool for the Spectacular specification language')
   .version('0.1.0')
   .option('--path <dir>', 'Path to the project root (defaults to current directory)');
+
+// ── init ─────────────────────────────────────────────────────────────
+
+program
+  .command('init [dir]')
+  .description('Initialize a new Spectacular spec directory')
+  .action((dir: string | undefined) => {
+    const specDir = dir !== undefined && dir !== '' ? path.resolve(dir) : path.resolve('spec');
+
+    if (fs.existsSync(specDir)) {
+      const entries = fs.readdirSync(specDir);
+      const hasSpec = entries.some(e => e.endsWith('.spc') || e.endsWith('.spectacular'));
+      if (hasSpec) {
+        console.error(chalk.red(`Spec files already exist in ${specDir}`));
+        process.exit(1);
+      }
+    }
+
+    fs.mkdirSync(specDir, { recursive: true });
+    fs.mkdirSync(path.join(specDir, '_layers_'), { recursive: true });
+
+    fs.writeFileSync(path.join(specDir, 'app.spc'), `# App
+
+@rem Replace this with your application's overview.
+
+A brief description of the application, its purpose, and core capabilities.
+
+## Authentication
+
+@rem Describe authentication requirements.
+
+## Data Model
+
+@rem Describe the core data model and relationships.
+`);
+
+    fs.writeFileSync(path.join(specDir, 'security.spc'), `# Security
+
+@rem Cross-cutting security concerns that apply across all features.
+
+All API communication **must** use TLS 1.3 or higher.
+`);
+
+    console.log(chalk.green(`Initialized Spectacular spec at ${specDir}/`));
+    console.log(chalk.dim('  Created app.spc'));
+    console.log(chalk.dim('  Created security.spc'));
+    console.log(chalk.dim('  Created _layers_/'));
+    console.log('');
+    console.log(chalk.dim('Add variant layers by creating directories under _layers_/'));
+    console.log(chalk.dim('  e.g., _layers_/ios/, _layers_/android/, _layers_/web/'));
+  });
 
 // ── resolve ──────────────────────────────────────────────────────────
 
@@ -90,6 +141,7 @@ interface CheckOpts {
   provider: string;
   model?: string;
   variant?: string;
+  json: boolean;
 }
 
 const VALID_PROVIDERS = ['claude', 'codex', 'gemini'] as const;
@@ -101,6 +153,7 @@ program
   .option('--provider <provider>', 'AI provider: claude, codex, gemini', 'claude')
   .option('--model <model>', 'Override the default model')
   .option('--variant <variant>', 'Variant to check (defaults to base)')
+  .option('--json', 'Output results as JSON (for programmatic use)', false)
   .action(async (type: string | undefined, opts: CheckOpts, cmd: Command) => {
     try {
       const projectRoot = getProjectRoot(cmd);
@@ -117,10 +170,12 @@ program
         ? resolveVariant(projectRoot, opts.variant)
         : resolveBase(projectRoot);
 
-      if (opts.variant !== undefined && opts.variant !== '') {
-        console.log(chalk.dim(`Checking variant: ${opts.variant}`));
-      } else {
-        console.log(chalk.dim('Checking base spec'));
+      if (!opts.json) {
+        if (opts.variant !== undefined && opts.variant !== '') {
+          console.log(chalk.dim(`Checking variant: ${opts.variant}`));
+        } else {
+          console.log(chalk.dim('Checking base spec'));
+        }
       }
 
       let checks: CheckType[];
@@ -135,20 +190,32 @@ program
         checks = ALL_CHECKS;
       }
 
-      console.log(chalk.dim(`Running ${checks.length} check(s) with ${aiProvider}...`));
-      console.log('');
+      if (!opts.json) {
+        console.log(chalk.dim(`Running ${checks.length} check(s) with ${aiProvider}...`));
+        console.log('');
+      }
 
-      const results = [];
+      const results: AnalysisResult[] = [];
       for (const checkType of checks) {
-        console.log(chalk.dim(`  Running ${checkType} check...`));
+        if (!opts.json) {
+          console.log(chalk.dim(`  Running ${checkType} check...`));
+        }
         const result = await runCheck(files, checkType, aiProvider, opts.model);
         results.push(result);
       }
 
-      console.log(formatAnalysis(results));
+      if (opts.json) {
+        console.log(JSON.stringify(results, null, 2));
+      } else {
+        console.log(formatAnalysis(results));
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red(`Error: ${message}`));
+      if (opts.json) {
+        console.log(JSON.stringify({ error: message }));
+      } else {
+        console.error(chalk.red(`Error: ${message}`));
+      }
       process.exit(1);
     }
   });
