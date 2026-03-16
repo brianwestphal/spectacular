@@ -64,7 +64,7 @@ export interface AnalysisResult {
   model: string;
 }
 
-export type AIProvider = 'claude' | 'codex' | 'gemini';
+export type AIProvider = 'claude' | 'claude-cli' | 'codex' | 'codex-cli' | 'gemini' | 'gemini-cli';
 
 // Diff types
 

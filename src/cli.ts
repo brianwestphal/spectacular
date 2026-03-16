@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -138,33 +139,113 @@ program
 // ── check ────────────────────────────────────────────────────────────
 
 interface CheckOpts {
-  provider: string;
+  provider?: string;
   model?: string;
   variant?: string;
   json: boolean;
 }
 
-const VALID_PROVIDERS = ['claude', 'codex', 'gemini'] as const;
+const VALID_PROVIDERS: AIProvider[] = ['claude', 'claude-cli', 'codex', 'codex-cli', 'gemini', 'gemini-cli'];
 const ALL_CHECKS: CheckType[] = ['ambiguity', 'consistency', 'completeness', 'redundancy'];
+
+interface DetectedProvider {
+  provider: AIProvider;
+  reason: string;
+}
+
+function cliExists(command: string): boolean {
+  try {
+    execFileSync(command, ['--version'], { stdio: 'pipe', timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function detectProvider(): DetectedProvider | null {
+  // 1. API keys — check in preference order
+  const apiKey = process.env['ANTHROPIC_API_KEY'];
+  if (apiKey !== undefined && apiKey !== '') {
+    return { provider: 'claude', reason: 'found ANTHROPIC_API_KEY' };
+  }
+
+  const openaiKey = process.env['OPENAI_API_KEY'];
+  if (openaiKey !== undefined && openaiKey !== '') {
+    return { provider: 'codex', reason: 'found OPENAI_API_KEY' };
+  }
+
+  const geminiKey = process.env['GEMINI_API_KEY'];
+  if (geminiKey !== undefined && geminiKey !== '') {
+    return { provider: 'gemini', reason: 'found GEMINI_API_KEY' };
+  }
+
+  // 2. CLI tools — check in preference order
+  if (cliExists('claude')) {
+    return { provider: 'claude-cli', reason: 'found claude CLI' };
+  }
+
+  if (cliExists('codex')) {
+    return { provider: 'codex-cli', reason: 'found codex CLI' };
+  }
+
+  if (cliExists('gemini')) {
+    return { provider: 'gemini-cli', reason: 'found gemini CLI' };
+  }
+
+  return null;
+}
+
+function printProviderHelp(): void {
+  console.error(chalk.red('No AI provider found.\n'));
+  console.error(chalk.bold('Set up one of the following:\n'));
+  console.error(`  ${chalk.cyan('API keys:')}`);
+  console.error(`    Set ${chalk.bold('ANTHROPIC_API_KEY')} for Claude API`);
+  console.error(`    Set ${chalk.bold('OPENAI_API_KEY')} for OpenAI API`);
+  console.error(`    Set ${chalk.bold('GEMINI_API_KEY')} for Google Gemini API`);
+  console.error('');
+  console.error(`  ${chalk.cyan('CLI tools:')}`);
+  console.error(`    Install ${chalk.bold('Claude Code')}  — https://claude.com/claude-code`);
+  console.error(`    Install ${chalk.bold('Codex CLI')}    — npm install -g @openai/codex`);
+  console.error(`    Install ${chalk.bold('Gemini CLI')}   — npm install -g @google/gemini-cli`);
+  console.error('');
+  console.error(chalk.dim('Or specify explicitly: spc check --provider <name>'));
+  console.error(chalk.dim(`  Providers: ${VALID_PROVIDERS.join(', ')}`));
+}
 
 program
   .command('check [type]')
   .description('Run AI-powered analysis (ambiguity, consistency, completeness, redundancy, or all)')
-  .option('--provider <provider>', 'AI provider: claude, codex, gemini', 'claude')
+  .option('--provider <provider>', 'AI provider (auto-detected if omitted): claude, claude-cli, codex, codex-cli, gemini, gemini-cli')
   .option('--model <model>', 'Override the default model')
   .option('--variant <variant>', 'Variant to check (defaults to base)')
   .option('--json', 'Output results as JSON (for programmatic use)', false)
   .action(async (type: string | undefined, opts: CheckOpts, cmd: Command) => {
     try {
       const projectRoot = getProjectRoot(cmd);
-      const provider = opts.provider;
 
-      if (!VALID_PROVIDERS.includes(provider as AIProvider)) {
-        console.error(chalk.red(`Unknown provider: ${provider}. Use claude, codex, or gemini.`));
-        process.exit(1);
+      // Resolve provider: explicit flag > auto-detect > error
+      let aiProvider: AIProvider;
+      if (opts.provider !== undefined && opts.provider !== '') {
+        if (!VALID_PROVIDERS.includes(opts.provider as AIProvider)) {
+          console.error(chalk.red(`Unknown provider: ${opts.provider}. Use: ${VALID_PROVIDERS.join(', ')}`));
+          process.exit(1);
+        }
+        aiProvider = opts.provider as AIProvider;
+      } else {
+        const detected = detectProvider();
+        if (detected === null) {
+          if (opts.json) {
+            console.log(JSON.stringify({ error: 'No AI provider found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or install Claude Code.' }));
+          } else {
+            printProviderHelp();
+          }
+          process.exit(1);
+        }
+        aiProvider = detected.provider;
+        if (!opts.json) {
+          console.log(chalk.dim(`Using ${chalk.bold(detected.provider)} (${detected.reason})`));
+        }
       }
-
-      const aiProvider = provider as AIProvider;
 
       const files = opts.variant !== undefined && opts.variant !== ''
         ? resolveVariant(projectRoot, opts.variant)
@@ -191,7 +272,7 @@ program
       }
 
       if (!opts.json) {
-        console.log(chalk.dim(`Running ${checks.length} check(s) with ${aiProvider}...`));
+        console.log(chalk.dim(`Running ${checks.length} check(s)...`));
         console.log('');
       }
 
