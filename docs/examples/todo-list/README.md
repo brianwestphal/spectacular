@@ -1,27 +1,26 @@
 # Todo List App — Spectacular Example
 
-A simple task management app specified in Spectacular, demonstrating layered specs across iOS and Android.
+A simple task management app specified in Spectacular, demonstrating layered specs across iOS and Web, with working generated code for both platforms.
 
 ## Structure
 
 ```
 todo-list/
-  app.spc              — App overview, auth, cloud sync, data model
-  tasks.spc            — Task CRUD, completion, quick add
-  lists.spc            — Default Inbox, custom lists, list switching
-  navigation.spc       — Bottom toolbar, screen transitions
-  security.spc         — TLS, token storage, encryption, input validation
-  notifications.spc    — Due date reminders, quiet hours, settings
+  *.spc                — Original spec (v1, intentionally imprecise for demo)
   _layers_/
-    ios/
-      navigation.spc   — Safe area, SF Symbols, iOS tab bar HIG
-      tasks.spc        — Swipe actions, haptics, 3D Touch quick actions
-      notifications.spc — UNUserNotificationCenter, badge count, permission strategy
-    android/
-      navigation.spc   — Material Design 3, Material Symbols, predictive back
-      tasks.spc        — Long-press context menu, FAB, @remove 3D Touch
-      notifications.spc — Notification channels, AlarmManager, POST_NOTIFICATIONS
+    ios/               — iOS layer (original)
+    web/               — Web layer (original)
+  evolved/             — Refined spec after walkthrough (v4)
+    *.spc              — Base spec with all refinements
+    _layers_/
+      ios/             — iOS layer with refinements
+      web/             — Web layer with refinements
+  targets/
+    web/               — Generated vanilla HTML/CSS/JS app (from evolved spec)
+    ios/               — Generated SwiftUI app (from evolved spec)
 ```
+
+The top-level spec files are intentionally imprecise — they demonstrate what `spc check` catches. The `evolved/` directory shows the same spec after iterative refinement. See [WALKTHROUGH.md](WALKTHROUGH.md) for the full story.
 
 ## Directives Used
 
@@ -29,9 +28,9 @@ todo-list/
 |-----------|-------|---------|
 | `@label`  | 12    | `cloud-sync`, `task-list`, `tls`, `due-reminders`, `quick-actions` |
 | `@see`    | 9     | Cross-refs between security, sync, tasks, lists |
-| `@ref`    | 4     | Apple HIG, Material Design docs |
+| `@ref`    | 2     | Apple HIG tab bars |
 | `@rem`    | 3     | Author notes (stretch goals, implementation notes) |
-| `@remove` | 1     | Android removes `## 3D Touch Quick Actions` |
+| `@remove` | 1     | Web removes `## Badge Count` |
 
 ## Running the Tools
 
@@ -39,23 +38,46 @@ todo-list/
 # Resolve base spec (no platform layers)
 npx spc --path docs/examples/todo-list resolve
 
-# Resolve merged iOS or Android spec
+# Resolve merged iOS or Web spec
 npx spc --path docs/examples/todo-list resolve ios
-npx spc --path docs/examples/todo-list resolve android
+npx spc --path docs/examples/todo-list resolve web
 
-# Diff iOS vs Android
-npx spc --path docs/examples/todo-list diff ios android
+# Diff iOS vs Web
+npx spc --path docs/examples/todo-list diff ios web
 
 # Diff base vs a platform (see what a layer adds)
 npx spc --path docs/examples/todo-list diff base ios
 
-# AI-powered analysis (requires ANTHROPIC_API_KEY by default)
+# AI-powered analysis
 npx spc --path docs/examples/todo-list check
-npx spc --path docs/examples/todo-list check ambiguity
 npx spc --path docs/examples/todo-list check --variant ios
-npx spc --path docs/examples/todo-list check --provider codex   # uses OPENAI_API_KEY
-npx spc --path docs/examples/todo-list check --provider gemini  # uses GEMINI_API_KEY
+npx spc --path docs/examples/todo-list check --variant web
+
+# Absorb a code change back into the spec
+npx spc --path docs/examples/todo-list absorb web --source web=docs/examples/todo-list/targets/web
+
+# Generate code from the spec
+npx spc --path docs/examples/todo-list generate web --source web=docs/examples/todo-list/targets/web
+npx spc --path docs/examples/todo-list generate ios --source ios=docs/examples/todo-list/targets/ios
 ```
+
+## Running the Targets
+
+### Web
+
+```bash
+cd docs/examples/todo-list/targets/web
+# Open index.html in a browser, or use a local server:
+npx serve .
+```
+
+### iOS
+
+Open `docs/examples/todo-list/targets/ios/TodoList/` in Xcode and run on a simulator.
+
+## Walkthrough
+
+See [WALKTHROUGH.md](WALKTHROUGH.md) for a step-by-step guide showing the complete Spectacular workflow: generate → refine → add feature → fix bug → absorb → regenerate.
 
 ## Sample Analysis Results
 

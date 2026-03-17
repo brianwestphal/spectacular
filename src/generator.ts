@@ -37,16 +37,13 @@ export function createSnapshot(cwd: string): Snapshot {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const tag = `spc/pre-generate-${timestamp}`;
 
-  // Tag the current HEAD
   execSync(`git tag "${tag}"`, { cwd, encoding: 'utf-8' });
 
-  // Check for uncommitted changes
   const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8' }).trim();
   const hadUncommitted = status !== '';
 
   let patchFile: string | null = null;
   if (hadUncommitted) {
-    // Save all uncommitted changes (tracked files) as a patch
     const tracked = execSync('git diff HEAD', { cwd, encoding: 'utf-8' });
     const staged = execSync('git diff --cached', { cwd, encoding: 'utf-8' });
     const combined = [staged, tracked].filter(p => p.trim() !== '').join('\n');
@@ -82,35 +79,81 @@ export function formatRecoveryInstructions(snapshot: Snapshot): string {
 
 // ── Code generation ──────────────────────────────────────────────────
 
-const GENERATE_SYSTEM_PROMPT = `You are a software engineer. You will be given a detailed software specification and a source directory path. Your task is to update the existing code in that directory — or create new files — so that the code accurately implements the specification.
+const GENERATE_SYSTEM_PROMPT = `You are a software engineer generating code from a specification.
 
-Rules:
-- Read the existing code first to understand the current state
-- Make targeted changes — don't rewrite files that already conform to the spec
-- Follow the existing code style, patterns, and conventions
-- If the spec says something the code already does correctly, leave it alone
-- Focus on correctness and completeness relative to the specification
-- Add comments only where behavior isn't self-evident
-- Respond ONLY with a JSON object describing what you did:
+You will be given:
+1. A software specification
+2. A list of existing source files and their contents
+3. The target platform/variant
 
+Your task: produce the complete source code for each file that needs to be created or updated.
+
+Respond with a JSON object:
 {
-  "summary": "Brief description of changes made",
-  "filesChanged": ["path/to/file1.ts", "path/to/file2.ts"],
-  "filesCreated": ["path/to/new-file.ts"],
-  "notes": "Any important decisions or things to verify"
+  "summary": "Brief description of what was generated",
+  "files": [
+    {
+      "path": "relative/path/to/file.js",
+      "action": "create" | "update",
+      "content": "the complete file content"
+    }
+  ],
+  "notes": "Any important decisions or things the developer should verify"
 }
 
-Respond ONLY with the JSON object. No markdown, no explanation.`;
+Rules:
+- Return the COMPLETE content for each file — not diffs or partial snippets
+- Use the file path relative to the source directory
+- Follow the conventions of the target platform
+- If existing files already conform to the spec, you can omit them from the response
+- Only include files that need to be created or changed
+- Write production-quality code with proper error handling
+- Respond ONLY with the JSON object. No markdown wrapping, no explanation outside the JSON.`;
+
+interface GeneratedFile {
+  path: string;
+  action: string;
+  content: string;
+}
 
 export interface GenerateResult {
   variant: string;
   sourceDir: string;
   summary: string;
-  filesChanged: string[];
-  filesCreated: string[];
+  filesWritten: string[];
   notes: string;
   provider: string;
   model: string;
+}
+
+function readExistingFiles(sourceDir: string): string {
+  const parts: string[] = [];
+  try {
+    const fileList = execSync(
+      'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/.build/*" -not -name "*.xcodeproj" -not -name ".DS_Store" | sort | head -50',
+      { cwd: sourceDir, encoding: 'utf-8' }
+    ).trim();
+
+    if (fileList === '') return '(empty directory)';
+
+    for (const relPath of fileList.split('\n')) {
+      const fullPath = path.join(sourceDir, relPath);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.size > 50_000) {
+          parts.push(`--- ${relPath} --- (${stat.size} bytes, too large to include)`);
+          continue;
+        }
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        parts.push(`--- ${relPath} ---\n${content}`);
+      } catch {
+        // skip unreadable files
+      }
+    }
+  } catch {
+    return '(could not list source files)';
+  }
+  return parts.join('\n\n');
 }
 
 export async function runGenerate(
@@ -127,30 +170,27 @@ export async function runGenerate(
     })
     .join('\n\n');
 
-  // List existing source files for context
-  let sourceTree: string;
-  try {
-    sourceTree = execSync('find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" | head -100', {
-      cwd: sourceDir,
-      encoding: 'utf-8',
-    }).trim();
-  } catch {
-    sourceTree = '(could not list source files)';
-  }
+  const existingFiles = readExistingFiles(sourceDir);
 
-  const userMessage = `Variant: ${variant}
+  const userMessage = `Target variant: ${variant}
 Source directory: ${sourceDir}
 
 Existing source files:
-${sourceTree}
+
+${existingFiles}
 
 Specification:
 
 ${specText}
 
-Update the code in ${sourceDir} to match this specification. Read the existing files first, then make targeted changes.`;
+Generate or update the code to implement this specification. Return complete file contents for every file that needs to be created or changed.`;
 
-  const responseText = await runAIPrompt(provider, model, GENERATE_SYSTEM_PROMPT, userMessage);
+  const responseText = await runAIPrompt(provider, model, GENERATE_SYSTEM_PROMPT, userMessage, 32768);
+
+  // Parse the response
+  let summary: string;
+  let notes: string;
+  const filesWritten: string[] = [];
 
   try {
     let jsonText = responseText.trim();
@@ -160,31 +200,43 @@ Update the code in ${sourceDir} to match this specification. Read the existing f
     }
 
     const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    summary = typeof parsed['summary'] === 'string' ? parsed['summary'] : 'Code generated';
+    notes = typeof parsed['notes'] === 'string' ? parsed['notes'] : '';
 
-    return {
-      variant,
-      sourceDir,
-      summary: typeof parsed['summary'] === 'string' ? parsed['summary'] : 'No summary provided',
-      filesChanged: Array.isArray(parsed['filesChanged'])
-        ? (parsed['filesChanged'] as unknown[]).filter((f): f is string => typeof f === 'string')
-        : [],
-      filesCreated: Array.isArray(parsed['filesCreated'])
-        ? (parsed['filesCreated'] as unknown[]).filter((f): f is string => typeof f === 'string')
-        : [],
-      notes: typeof parsed['notes'] === 'string' ? parsed['notes'] : '',
-      provider,
-      model,
-    };
+    if (Array.isArray(parsed['files'])) {
+      for (const f of parsed['files'] as GeneratedFile[]) {
+        if (typeof f.path !== 'string' || typeof f.content !== 'string') continue;
+
+        const targetPath = path.join(sourceDir, f.path);
+        const targetDir = path.dirname(targetPath);
+
+        // Create directories as needed
+        fs.mkdirSync(targetDir, { recursive: true });
+
+        // Write the file
+        fs.writeFileSync(targetPath, f.content);
+        filesWritten.push(f.path);
+      }
+    }
   } catch {
     return {
       variant,
       sourceDir,
-      summary: `Failed to parse AI response: ${responseText.slice(0, 200)}...`,
-      filesChanged: [],
-      filesCreated: [],
-      notes: '',
+      summary: 'Failed to parse AI response',
+      filesWritten: [],
+      notes: responseText.slice(0, 500),
       provider,
       model,
     };
   }
+
+  return {
+    variant,
+    sourceDir,
+    summary,
+    filesWritten,
+    notes,
+    provider,
+    model,
+  };
 }

@@ -539,11 +539,8 @@ program
 
         if (!opts.json) {
           console.log(chalk.dim(`  ${result.summary}`));
-          if (result.filesChanged.length > 0) {
-            console.log(chalk.dim(`  Changed: ${result.filesChanged.join(', ')}`));
-          }
-          if (result.filesCreated.length > 0) {
-            console.log(chalk.dim(`  Created: ${result.filesCreated.join(', ')}`));
+          if (result.filesWritten.length > 0) {
+            console.log(chalk.dim(`  Files: ${result.filesWritten.join(', ')}`));
           }
           if (result.notes !== '') {
             console.log(chalk.yellow(`  Note: ${result.notes}`));

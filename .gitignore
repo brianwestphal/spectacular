@@ -3,3 +3,5 @@ dist/
 .release-state.json
 .glassbox
 .hotsheet
+.env
+.spc-snapshot*.patch

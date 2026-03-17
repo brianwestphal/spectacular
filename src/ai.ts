@@ -26,10 +26,11 @@ export async function runAIPrompt(
   model: string,
   systemPrompt: string,
   userMessage: string,
+  maxTokens: number = 16384,
 ): Promise<string> {
   switch (provider) {
     case 'claude':
-      return callClaude(model, systemPrompt, userMessage);
+      return callClaude(model, systemPrompt, userMessage, maxTokens);
     case 'claude-cli':
       return callClaudeCLI(model, systemPrompt, userMessage);
     case 'codex':
@@ -45,7 +46,7 @@ export async function runAIPrompt(
 
 // ── API providers ────────────────────────────────────────────────────
 
-async function callClaude(model: string, systemPrompt: string, userMessage: string): Promise<string> {
+async function callClaude(model: string, systemPrompt: string, userMessage: string, maxTokens: number): Promise<string> {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (apiKey === undefined || apiKey === '') {
     throw new Error('ANTHROPIC_API_KEY environment variable is not set.');
@@ -54,12 +55,15 @@ async function callClaude(model: string, systemPrompt: string, userMessage: stri
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey });
 
-  const response = await client.messages.create({
+  // Use streaming to handle large outputs without timeout
+  const stream = client.messages.stream({
     model,
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
   });
+
+  const response = await stream.finalMessage();
 
   const textBlock = response.content.find(b => b.type === 'text');
   if (textBlock !== undefined) {
