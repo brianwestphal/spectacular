@@ -307,7 +307,17 @@ step_publish() {
   version=$(get_state "version")
 
   info "Publishing to npm..."
-  npm publish
+
+  # Prerelease versions (containing -) need --tag to avoid becoming "latest"
+  if [[ "$version" == *-* ]]; then
+    local prerelease_tag
+    # Extract tag name: 0.1.0-beta.1 → beta, 1.0.0-rc.1 → rc, 2.0.0-alpha → alpha
+    prerelease_tag=$(echo "$version" | sed 's/.*-\([a-zA-Z]*\).*/\1/')
+    warn "Prerelease version detected — publishing with --tag ${prerelease_tag}"
+    npm publish --tag "$prerelease_tag"
+  else
+    npm publish
+  fi
 
   success "Published ${PACKAGE_NAME}@${version} to npm"
 }

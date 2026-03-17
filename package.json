@@ -14,7 +14,7 @@
     "cross-platform"
   ],
   "bin": {
-    "spc": "./dist/cli.js"
+    "spc": "dist/cli.js"
   },
   "files": [
     "dist/",
