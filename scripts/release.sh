@@ -294,8 +294,21 @@ step_git_tag() {
 
   info "Creating git commit and tag ${BOLD}${tag}${RESET}..."
 
+  # Stage version files
   git add package.json package-lock.json 2>/dev/null || git add package.json
-  git commit -m "release: v${version}"
+
+  # Commit if there are staged changes (skip if version didn't change)
+  if git diff --cached --quiet; then
+    warn "No changes to commit (version may already be set)"
+  else
+    git commit -m "release: v${version}"
+  fi
+
+  # Remove existing tag if re-running
+  if git tag -l "$tag" | grep -q "$tag"; then
+    warn "Tag ${tag} already exists — replacing it"
+    git tag -d "$tag"
+  fi
 
   echo -e "$notes" | git tag -a "$tag" -F -
 
