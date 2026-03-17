@@ -619,16 +619,33 @@ Swipe actions use standard iOS swipe-action styling.
 
 ### Command-Line Interface
 
-- **`spc resolve <variant-path>`** — Produce the fully resolved spec for a variant by merging all applicable layers.
+**Spec management:**
+
+- **`spc init [dir]`** — Scaffold a new spec directory with starter files.
+- **`spc resolve [variant]`** — Produce the fully resolved spec for a variant by merging all applicable layers.
 - **`spc diff <variant-a> <variant-b>`** — Show differences between two resolved variants.
-- **`spc diff --git <ref-a> <ref-b>`** — Show differences between two git versions of the spec.
+
+**AI-powered analysis:**
+
 - **`spc check ambiguity`** — Identify statements too vague for reliable code generation.
 - **`spc check consistency`** — Identify statements that potentially conflict with each other, across files and layers.
 - **`spc check completeness`** — Identify areas that likely need more detail (missing error handling, edge cases, accessibility, etc.).
 - **`spc check redundancy`** — Identify unnecessarily repeated or overlapping statements.
-- **`spc check` (all)** — Run all checks.
-- **`spc migrate`** — Interactive tool to evolve a spec between versions, asking clarifying questions as needed.
+- **`spc check`** (all) — Run all checks.
 - **`spc check security`** *(phase 2)* — Identify specification patterns that may introduce security vulnerabilities.
+
+**Code ↔ spec feedback loop:**
+
+- **`spc absorb <variant>`** — Analyze code changes (git diff) against the current spec and propose spec updates that would prevent the bug class. Supports `--uncommitted`, `--staged`, `--commit`, `--range`, `--branch`, and `--files` for selecting which changes to absorb.
+- **`spc generate <variant>`** — Generate or update source code from the resolved spec. Creates a recoverable snapshot before making changes. Use `all` to generate for all variants sequentially.
+
+**Common options:**
+
+All AI-powered commands (`check`, `absorb`, `generate`) support:
+- `--provider` — AI provider (`claude`, `claude-cli`, `codex`, `codex-cli`, `gemini`, `gemini-cli`). Auto-detected if omitted.
+- `--model` — Override the default model.
+- `--json` — Machine-readable JSON output.
+- `--source <variant>=<path>` — Map variant names to source code directories (for `absorb` and `generate`).
 
 ### AI-Powered Analysis
 

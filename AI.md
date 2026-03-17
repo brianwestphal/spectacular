@@ -141,7 +141,12 @@ npm install --save-dev spectacular-lang
     "spec:resolve:android": "spc --path spec resolve android",
     "spec:diff": "spc --path spec diff ios android",
     "spec:check": "spc --path spec check --json",
-    "spec:check:ios": "spc --path spec check --json --variant ios"
+    "spec:check:ios": "spc --path spec check --json --variant ios",
+    "spec:absorb:ios": "spc --path spec absorb ios --source ios=./ios-app",
+    "spec:absorb:android": "spc --path spec absorb android --source android=./android-app",
+    "spec:generate:ios": "spc --path spec generate ios --source ios=./ios-app",
+    "spec:generate:android": "spc --path spec generate android --source android=./android-app",
+    "spec:generate:all": "spc --path spec generate all --source ios=./ios-app --source android=./android-app"
   }
 }
 ```
@@ -165,6 +170,15 @@ When writing or modifying code:
 - Read the relevant .spc files first to understand requirements
 - The spec is the source of truth — code must match the spec
 - If the spec is ambiguous, ask before assuming
+
+When fixing bugs:
+- After fixing a bug, run `npm run spec:absorb:<variant>` to propose spec updates
+- Review and apply the proposed changes to the .spc files
+- Then run `npm run spec:generate:all` to propagate the fix to all variants
+
+**Important**: Any change to requirements, behavior, or constraints must be
+reflected in the spec files. The spec is the source of truth — do not change
+code behavior without updating the spec to match.
 
 When modifying the spec:
 - Run `npm run spec:check` after changes to catch issues
@@ -216,6 +230,101 @@ For each finding, decide:
 
 After making changes, re-run `spc check` to verify that fixed issues don't reappear and that new issues weren't introduced.
 
+## Task: Absorbing Bug Fixes into the Spec
+
+When a bug is fixed directly in code, the spec must be updated to prevent the same class of bug across all variants. This is the most critical workflow for maintaining spec-as-source-of-truth.
+
+### The feedback loop
+
+```bash
+# 1. Fix the bug in source code (e.g., in ./ios-app)
+
+# 2. Absorb: analyze the code diff and propose spec changes
+spc absorb ios --source ios=./ios-app
+
+# With different diff modes:
+spc absorb ios --source ios=./ios-app --staged           # only staged changes
+spc absorb ios --source ios=./ios-app --commit abc123    # specific commit
+spc absorb ios --source ios=./ios-app --range main..HEAD # commit range
+spc absorb ios --source ios=./ios-app --branch main      # branch diff
+
+# 3. Review the proposed spec changes
+#    The output shows: file, section, action, current/proposed text, and reasoning
+#    Edit the .spc files based on the proposal
+
+# 4. Verify the updated spec
+spc check --variant ios
+
+# 5. Generate: update code for all variants based on the spec
+spc generate all --source ios=./ios-app --source android=./android-app
+```
+
+### Key principles when absorbing
+
+- **Prefer base-layer changes** — if a fix applies to all platforms, update the base spec, not a variant layer.
+- **Think in terms of the bug class** — don't just describe the specific fix; make the spec precise enough to prevent the entire category of bug.
+- **Cross-reference** — if the fix reveals a gap in a cross-cutting concern (security, accessibility), update that file too.
+- **Re-check after updating** — run `spc check` to make sure the spec changes don't introduce new conflicts.
+
+### Acting on absorb output
+
+The `spc absorb` command outputs a structured proposal with:
+- **Summary** — what the code change does and why spec changes are needed
+- **Changes** — each with file, section, action (add/modify/remove), layer (base or variant), current text, proposed text, and reason
+
+For each proposed change:
+1. **Apply it** — edit the .spc file to incorporate the proposal
+2. **Refine it** — the proposal may be too specific or too general; adjust as needed
+3. **Skip it** — if the spec already covers this adequately
+
+## Task: Generating Code from Specs
+
+When generating or updating code based on the spec:
+
+### Using `spc generate`
+
+```bash
+# Generate code for a single variant
+spc generate ios --source ios=./ios-app
+
+# Generate for all variants
+spc generate all --source ios=./ios-app --source android=./android-app
+
+# Exclude a variant
+spc generate all --source ios=./ios-app --source android=./android-app --exclude-target web
+```
+
+`spc generate`:
+1. Creates a recoverable snapshot (git tag + patch file for uncommitted changes)
+2. Resolves the spec for each target variant
+3. Invokes the AI to update the source code
+4. Prints recovery instructions
+
+### Recovery
+
+If generation produces unwanted changes:
+```bash
+git reset --hard spc/pre-generate-<timestamp>
+git apply .spc-snapshot-<timestamp>.patch   # if there were uncommitted changes
+```
+
+### Mapping spec to code
+
+- Each `#` top-level heading typically maps to a major module or feature area.
+- Each `##` section maps to a component, screen, service, or behavior.
+- `@ref()` links point to external resources with additional implementation details.
+- `@see()` links indicate dependencies between features.
+
+### Respecting precision levels
+
+- **High-precision statements** (specific values, API details, exact behaviors) — implement exactly as written.
+- **Medium-precision statements** (general approach, rough behavior) — implement using best practices for the target platform, staying within the stated constraints.
+- **Low-precision statements** (intent, feel, general direction) — use your judgment, but flag any significant decisions you made that weren't specified.
+
+### Validate after generating
+
+After generating code, mentally trace each spec statement to verify it's implemented. Flag any statements you couldn't implement or had to deviate from.
+
 ## Task: Maintaining Specs
 
 When requirements change:
@@ -248,36 +357,3 @@ When requirements change:
 2. Add `.spc` files only for features that differ from the base.
 3. Use `spc diff base <new-variant>` to review what the layer changes.
 4. Run `spc check --variant <new-variant>` to analyze the resolved spec.
-
-## Task: Generating Code from Specs
-
-When generating or modifying code based on a spec:
-
-### 1. Resolve the target variant
-
-```bash
-spc --path spec resolve ios
-```
-
-This gives you the complete, merged specification for that platform with all layers applied.
-
-### 2. Read the resolved spec
-
-The resolved output is the authoritative source. Do not reason about layer merging yourself — use the resolved output.
-
-### 3. Map spec sections to code
-
-- Each `#` top-level heading typically maps to a major module or feature area.
-- Each `##` section maps to a component, screen, service, or behavior.
-- `@ref()` links point to external resources that may contain additional implementation details.
-- `@see()` links indicate dependencies between features — implement referenced features first or in tandem.
-
-### 4. Respect precision levels
-
-- **High-precision statements** (specific values, API details, exact behaviors) — implement exactly as written.
-- **Medium-precision statements** (general approach, rough behavior) — implement using best practices for the target platform, staying within the stated constraints.
-- **Low-precision statements** (intent, feel, general direction) — use your judgment, but flag any significant decisions you made that weren't specified.
-
-### 5. Validate against the spec
-
-After generating code, mentally trace each spec statement to verify it's implemented. Flag any statements you couldn't implement or had to deviate from.

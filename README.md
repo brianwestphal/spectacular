@@ -139,7 +139,7 @@ The analysis tools cross-reference these against feature-specific files to flag 
 
 ## CLI Reference
 
-All commands accept `--path <dir>` to specify the project root (defaults to current directory).
+All commands accept `--path <dir>` to specify the spec project root (defaults to current directory).
 
 | Command | Description |
 |---------|-------------|
@@ -147,17 +147,38 @@ All commands accept `--path <dir>` to specify the project root (defaults to curr
 | `spc resolve [variant]` | Merge layers and print the resolved spec |
 | `spc diff <a> <b>` | Show differences between two variants (`base` is a valid name) |
 | `spc check [type]` | AI-powered analysis: `ambiguity`, `consistency`, `completeness`, `redundancy`, or all |
+| `spc absorb <variant>` | Absorb code changes into proposed spec updates |
+| `spc generate <variant>` | Generate/update code from the spec |
 
-### Check options
+### The bug-fix feedback loop
 
+```bash
+# 1. Fix a bug in iOS code
+# 2. Absorb the fix into spec updates
+spc absorb ios --source ios=./ios-app
+
+# 3. Review & edit the proposed .spc changes
+# 4. Generate updated code for all variants
+spc generate all --source ios=./ios-app --source android=./android-app
 ```
---provider <claude|codex|gemini>   AI provider (default: claude)
---model <model-name>               Override the default model
---variant <variant>                Check a specific variant (default: base)
---json                             Output results as JSON (for programmatic use)
-```
 
-API keys are read from environment variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`.
+`absorb` supports the same diff selection flags as code review tools:
+`--uncommitted` (default), `--staged`, `--unstaged`, `--commit <sha>`, `--range <from..to>`, `--branch <name>`, `--files <patterns>`.
+
+`generate` creates a recoverable snapshot before making changes, so you can always roll back.
+
+### AI provider auto-detection
+
+The `check`, `absorb`, and `generate` commands auto-detect the best available AI provider:
+
+1. `ANTHROPIC_API_KEY` env var → Claude API
+2. `OPENAI_API_KEY` env var → OpenAI API
+3. `GEMINI_API_KEY` env var → Gemini API
+4. `claude` CLI installed → Claude Code CLI
+5. `codex` CLI installed → Codex CLI
+6. `gemini` CLI installed → Gemini CLI
+
+Override with `--provider <name>`. All commands support `--model` to override the default model and `--json` for machine-readable output.
 
 ## Using Spectacular with AI Tools
 
@@ -167,8 +188,9 @@ The guide covers:
 - **Writing specs** — structure, conventions, and patterns
 - **Setting up tooling** — installing, adding package.json scripts, CLAUDE.md integration
 - **Running analysis** — interpreting findings, fixing issues, asking clarifying questions
+- **Absorbing bug fixes** — feeding code changes back into the spec
 - **Maintaining specs** — adding/modifying/removing features and variants
-- **Generating code** — mapping spec sections to code, respecting precision levels
+- **Generating code** — invoking AI to update source code from the spec
 
 ### With Claude Code
 
@@ -189,6 +211,15 @@ When writing or modifying code:
 - Read the relevant .spc files first to understand requirements
 - The spec is the source of truth — code must match the spec
 - If the spec is ambiguous, ask before assuming
+
+When fixing bugs:
+- After fixing a bug in code, run `npx spc absorb <variant> --source <variant>=<path>`
+- Review and apply the proposed spec changes
+- Then run `npx spc generate all --source ...` to propagate the fix
+
+**Important**: Any change to requirements, behavior, or constraints must be
+reflected in the spec files. The spec is the source of truth — do not change
+code behavior without updating the spec to match.
 ```
 
 ### With other AI tools
