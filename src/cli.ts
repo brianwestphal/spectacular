@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createInterface } from 'node:readline/promises';
 
 import chalk from 'chalk';
 import { Command } from 'commander';
@@ -535,6 +536,19 @@ program
         console.log('');
       }
 
+      // Prompt callback for very large generations (only in interactive terminal mode)
+      const onContinuationLimit = opts.json ? undefined : async (count: number): Promise<boolean> => {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const answer = await rl.question(
+            chalk.yellow(`\nGeneration has used ${count} continuation requests and is still producing output. Continue? (y/n) `),
+          );
+          return answer.trim().toLowerCase() === 'y';
+        } finally {
+          rl.close();
+        }
+      };
+
       // Generate for each variant sequentially
       const results: GenerateResult[] = [];
       for (const target of targetVariants) {
@@ -547,7 +561,7 @@ program
         }
 
         const files = resolveVariant(projectRoot, target);
-        const result = await runGenerate(files, target, sourceDir, aiProvider, model);
+        const result = await runGenerate(files, target, sourceDir, aiProvider, model, onContinuationLimit);
         results.push(result);
 
         if (!opts.json) {

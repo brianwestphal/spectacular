@@ -162,6 +162,7 @@ export async function runGenerate(
   sourceDir: string,
   provider: AIProvider,
   model: string,
+  onContinuationLimit?: (count: number) => Promise<boolean>,
 ): Promise<GenerateResult> {
   const specText = resolvedFiles
     .map(f => {
@@ -185,7 +186,7 @@ ${specText}
 
 Generate or update the code to implement this specification. Return complete file contents for every file that needs to be created or changed.`;
 
-  const responseText = await runAIPrompt(provider, model, GENERATE_SYSTEM_PROMPT, userMessage, 32768);
+  const responseText = await runAIPrompt(provider, model, GENERATE_SYSTEM_PROMPT, userMessage, 32768, onContinuationLimit);
 
   // Parse the response
   let summary: string;

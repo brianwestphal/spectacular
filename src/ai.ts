@@ -20,6 +20,10 @@ export function getDefaultModel(provider: AIProvider): string {
 
 /**
  * Send a prompt to an AI provider and return the response text.
+ *
+ * If the response is truncated, the provider automatically continues
+ * up to MAX_CONTINUATIONS times. If onContinuationLimit is provided,
+ * it is called at the limit and can authorize further continuations.
  */
 export async function runAIPrompt(
   provider: AIProvider,
@@ -27,10 +31,11 @@ export async function runAIPrompt(
   systemPrompt: string,
   userMessage: string,
   maxTokens: number = 16384,
+  onContinuationLimit?: (count: number) => Promise<boolean>,
 ): Promise<string> {
   switch (provider) {
     case 'claude':
-      return callClaude(model, systemPrompt, userMessage, maxTokens);
+      return callClaude(model, systemPrompt, userMessage, maxTokens, onContinuationLimit);
     case 'claude-cli':
       return callClaudeCLI(model, systemPrompt, userMessage);
     case 'codex':
@@ -46,6 +51,9 @@ export async function runAIPrompt(
 
 // ── API providers ────────────────────────────────────────────────────
 
+const MAX_CONTINUATIONS = 50;
+const CONTINUATION_PROMPT = 'Your response was truncated due to length. Continue from exactly where you stopped. Do not repeat any previously generated content — begin your output at the precise point of truncation.';
+
 function getClaudeMaxOutputTokens(model: string): number {
   if (model.startsWith('claude-opus-4')) return 32000;
   if (model.startsWith('claude-sonnet-4')) return 64000;
@@ -56,7 +64,13 @@ function getClaudeMaxOutputTokens(model: string): number {
   return 16384;
 }
 
-async function callClaude(model: string, systemPrompt: string, userMessage: string, maxTokens: number): Promise<string> {
+async function callClaude(
+  model: string,
+  systemPrompt: string,
+  userMessage: string,
+  maxTokens: number,
+  onContinuationLimit?: (count: number) => Promise<boolean>,
+): Promise<string> {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (apiKey === undefined || apiKey === '') {
     throw new Error('ANTHROPIC_API_KEY environment variable is not set.');
@@ -66,22 +80,50 @@ async function callClaude(model: string, systemPrompt: string, userMessage: stri
   const client = new Anthropic({ apiKey });
 
   const effectiveMaxTokens = Math.min(maxTokens, getClaudeMaxOutputTokens(model));
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+    { role: 'user', content: userMessage },
+  ];
+  let fullText = '';
+  let continuationLimit = MAX_CONTINUATIONS;
 
-  // Use streaming to handle large outputs without timeout
-  const stream = client.messages.stream({
-    model,
-    max_tokens: effectiveMaxTokens,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userMessage }],
-  });
+  for (let i = 0; i <= continuationLimit; i++) {
+    // Use streaming to handle large outputs without timeout
+    const stream = client.messages.stream({
+      model,
+      max_tokens: effectiveMaxTokens,
+      system: systemPrompt,
+      messages,
+    });
 
-  const response = await stream.finalMessage();
+    const response = await stream.finalMessage();
 
-  const textBlock = response.content.find(b => b.type === 'text');
-  if (textBlock !== undefined) {
-    return textBlock.text;
+    let chunkText = '';
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        chunkText += block.text;
+      }
+    }
+    fullText += chunkText;
+
+    if (response.stop_reason !== 'max_tokens') break;
+
+    // At the continuation limit, ask whether to keep going
+    if (i >= continuationLimit) {
+      if (onContinuationLimit !== undefined) {
+        const shouldContinue = await onContinuationLimit(continuationLimit);
+        if (!shouldContinue) break;
+        continuationLimit += MAX_CONTINUATIONS;
+      } else {
+        break;
+      }
+    }
+
+    // Response was truncated — ask the model to continue
+    messages.push({ role: 'assistant', content: chunkText });
+    messages.push({ role: 'user', content: CONTINUATION_PROMPT });
   }
-  return '';
+
+  return fullText;
 }
 
 async function callOpenAI(model: string, systemPrompt: string, userMessage: string): Promise<string> {
