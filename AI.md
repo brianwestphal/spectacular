@@ -206,6 +206,10 @@ spc --path spec check --variant ios --json
 spc --path spec check --provider claude
 spc --path spec check --provider codex
 spc --path spec check --provider gemini
+
+# Interactive mode — review findings, accept/comment/skip AI-proposed fixes
+spc --path spec check -i
+spc --path spec check -i --variant ios
 ```
 
 ### Interpreting findings
@@ -229,6 +233,22 @@ For each finding, decide:
 3. **Acknowledge it** — For info-level findings about intentional vagueness, no action is needed. The spec author chose low precision deliberately.
 
 After making changes, re-run `spc check` to verify that fixed issues don't reappear and that new issues weren't introduced.
+
+### Interactive mode
+
+Use `spc check -i` to enter interactive mode. After running all checks, it presents a menu:
+
+- **Work on N errors only** — focus on errors
+- **Work on N errors and M warnings** — address both
+- **Stop** — exit
+
+For each issue, the AI either proposes a specific fix (shown as a diff) or asks a clarifying question. For each proposal you can:
+
+- **[a]ccept** — apply the change to the .spc file
+- **[c]omment** — provide feedback and get a revised proposal
+- **[s]kip** — move to the next issue
+
+After all proposals are reviewed, checks re-run automatically. The loop continues until there are no remaining errors/warnings or you choose to stop.
 
 ## Task: Absorbing Bug Fixes into the Spec
 

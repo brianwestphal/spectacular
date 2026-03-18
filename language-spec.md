@@ -632,6 +632,7 @@ Swipe actions use standard iOS swipe-action styling.
 - **`spc check completeness`** — Identify areas that likely need more detail (missing error handling, edge cases, accessibility, etc.).
 - **`spc check redundancy`** — Identify unnecessarily repeated or overlapping statements.
 - **`spc check`** (all) — Run all checks.
+- **`spc check -i`** — Interactive mode: review issues, accept/comment/skip AI-proposed fixes, and re-run checks in a loop.
 - **`spc check security`** *(phase 2)* — Identify specification patterns that may introduce security vulnerabilities.
 
 **Code ↔ spec feedback loop:**

@@ -52,6 +52,9 @@ spc check
 spc check --variant ios
 spc check --provider codex    # use OpenAI instead
 spc check --provider gemini   # use Gemini instead
+
+# Interactive mode: review issues, accept/comment/skip AI-proposed fixes
+spc check -i
 ```
 
 ## The Language
@@ -146,7 +149,7 @@ All commands accept `--path <dir>` to specify the spec project root (defaults to
 | `spc init [dir]` | Scaffold a new spec directory with starter files |
 | `spc resolve [variant]` | Merge layers and print the resolved spec |
 | `spc diff <a> <b>` | Show differences between two variants (`base` is a valid name) |
-| `spc check [type]` | AI-powered analysis: `ambiguity`, `consistency`, `completeness`, `redundancy`, or all |
+| `spc check [type]` | AI-powered analysis: `ambiguity`, `consistency`, `completeness`, `redundancy`, or all. Use `-i` for interactive fix mode |
 | `spc absorb <variant>` | Absorb code changes into proposed spec updates |
 | `spc generate <variant>` | Generate/update code from the spec |
 

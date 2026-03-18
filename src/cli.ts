@@ -15,6 +15,7 @@ import { diffSpecs } from './differ.js';
 import { formatAnalysis, formatDiff, formatSpecFile } from './formatter.js';
 import type { GenerateResult } from './generator.js';
 import { createSnapshot, formatRecoveryInstructions, parseSourceMappings, runGenerate } from './generator.js';
+import { runInteractiveCheck } from './interactive.js';
 import { findProjectRoot } from './parser.js';
 import { listVariants, resolveBase, resolveVariant } from './resolver.js';
 import type { AIProvider, AnalysisResult, CheckType } from './types.js';
@@ -147,6 +148,7 @@ interface CheckOpts {
   provider?: string;
   model?: string;
   variant?: string;
+  interactive: boolean;
   json: boolean;
 }
 
@@ -220,6 +222,7 @@ function printProviderHelp(): void {
 program
   .command('check [type]')
   .description('Run AI-powered analysis (ambiguity, consistency, completeness, redundancy, or all)')
+  .option('-i, --interactive', 'Interactive mode: review and fix issues', false)
   .option('--provider <provider>', 'AI provider (auto-detected if omitted): claude, claude-cli, codex, codex-cli, gemini, gemini-cli')
   .option('--model <model>', 'Override the default model')
   .option('--variant <variant>', 'Variant to check (defaults to base)')
@@ -228,18 +231,6 @@ program
     try {
       const projectRoot = getProjectRoot(cmd);
       const aiProvider = resolveProvider(opts.provider, opts.json);
-
-      const files = opts.variant !== undefined && opts.variant !== ''
-        ? resolveVariant(projectRoot, opts.variant)
-        : resolveBase(projectRoot);
-
-      if (!opts.json) {
-        if (opts.variant !== undefined && opts.variant !== '') {
-          console.log(chalk.dim(`Checking variant: ${opts.variant}`));
-        } else {
-          console.log(chalk.dim('Checking base spec'));
-        }
-      }
 
       let checks: CheckType[];
 
@@ -253,7 +244,28 @@ program
         checks = ALL_CHECKS;
       }
 
+      // Interactive mode
+      if (opts.interactive) {
+        if (opts.json) {
+          console.error(chalk.red('--interactive and --json cannot be used together.'));
+          process.exit(1);
+        }
+        const model = opts.model ?? getDefaultModel(aiProvider);
+        await runInteractiveCheck(projectRoot, opts.variant, checks, aiProvider, model);
+        return;
+      }
+
+      // Non-interactive mode
+      const files = opts.variant !== undefined && opts.variant !== ''
+        ? resolveVariant(projectRoot, opts.variant)
+        : resolveBase(projectRoot);
+
       if (!opts.json) {
+        if (opts.variant !== undefined && opts.variant !== '') {
+          console.log(chalk.dim(`Checking variant: ${opts.variant}`));
+        } else {
+          console.log(chalk.dim('Checking base spec'));
+        }
         console.log(chalk.dim(`Running ${checks.length} check(s)...`));
         console.log('');
       }
@@ -265,12 +277,13 @@ program
         }
         const result = await runCheck(files, checkType, aiProvider, opts.model);
         results.push(result);
+        if (!opts.json) {
+          console.log(formatAnalysis([result]));
+        }
       }
 
       if (opts.json) {
         console.log(JSON.stringify(results, null, 2));
-      } else {
-        console.log(formatAnalysis(results));
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
