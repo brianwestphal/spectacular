@@ -1,6 +1,6 @@
 {
   "name": "spectacular-lang",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A layered specification language for defining software as a human- and AI-readable source of truth",
   "type": "module",
   "license": "MIT",
