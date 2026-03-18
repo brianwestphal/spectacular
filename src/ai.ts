@@ -46,6 +46,16 @@ export async function runAIPrompt(
 
 // ── API providers ────────────────────────────────────────────────────
 
+function getClaudeMaxOutputTokens(model: string): number {
+  if (model.startsWith('claude-opus-4')) return 32000;
+  if (model.startsWith('claude-sonnet-4')) return 64000;
+  if (model.startsWith('claude-3-5-sonnet')) return 8192;
+  if (model.startsWith('claude-3-5-haiku')) return 8192;
+  if (model.startsWith('claude-3-opus')) return 4096;
+  if (model.startsWith('claude-3-haiku')) return 4096;
+  return 16384;
+}
+
 async function callClaude(model: string, systemPrompt: string, userMessage: string, maxTokens: number): Promise<string> {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (apiKey === undefined || apiKey === '') {
@@ -55,10 +65,12 @@ async function callClaude(model: string, systemPrompt: string, userMessage: stri
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey });
 
+  const effectiveMaxTokens = Math.min(maxTokens, getClaudeMaxOutputTokens(model));
+
   // Use streaming to handle large outputs without timeout
   const stream = client.messages.stream({
     model,
-    max_tokens: maxTokens,
+    max_tokens: effectiveMaxTokens,
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
   });
