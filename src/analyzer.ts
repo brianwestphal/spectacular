@@ -125,9 +125,22 @@ function parseAIResponse(responseText: string): Finding[] {
   try {
     let jsonText = responseText.trim();
 
+    // Extract from code fences if present
     const codeBlockMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
     if (codeBlockMatch?.[1] !== undefined) {
       jsonText = codeBlockMatch[1].trim();
+    }
+
+    // Strip any preamble text before the first JSON array
+    const arrayStart = jsonText.indexOf('[');
+    if (arrayStart > 0) {
+      jsonText = jsonText.slice(arrayStart);
+    }
+
+    // Strip any trailing text after the last closing bracket
+    const arrayEnd = jsonText.lastIndexOf(']');
+    if (arrayEnd >= 0 && arrayEnd < jsonText.length - 1) {
+      jsonText = jsonText.slice(0, arrayEnd + 1);
     }
 
     const parsed: unknown = JSON.parse(jsonText);
