@@ -189,46 +189,50 @@ Generate or update the code to implement this specification. Return complete fil
   const responseText = await runAIPrompt(provider, model, GENERATE_SYSTEM_PROMPT, userMessage, 32768, onContinuationLimit);
 
   // Parse the response
-  let summary: string;
-  let notes: string;
-  const filesWritten: string[] = [];
+  const jsonText = extractJSON(responseText);
+  let parsed: Record<string, unknown>;
+  let isPartial = false;
 
   try {
-    let jsonText = responseText.trim();
-    const codeBlockMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (codeBlockMatch?.[1] !== undefined) {
-      jsonText = codeBlockMatch[1].trim();
-    }
-
-    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-    summary = typeof parsed['summary'] === 'string' ? parsed['summary'] : 'Code generated';
-    notes = typeof parsed['notes'] === 'string' ? parsed['notes'] : '';
-
-    if (Array.isArray(parsed['files'])) {
-      for (const f of parsed['files'] as GeneratedFile[]) {
-        if (typeof f.path !== 'string' || typeof f.content !== 'string') continue;
-
-        const targetPath = path.join(sourceDir, f.path);
-        const targetDir = path.dirname(targetPath);
-
-        // Create directories as needed
-        fs.mkdirSync(targetDir, { recursive: true });
-
-        // Write the file
-        fs.writeFileSync(targetPath, f.content);
-        filesWritten.push(f.path);
-      }
-    }
+    parsed = JSON.parse(jsonText) as Record<string, unknown>;
   } catch {
-    return {
-      variant,
-      sourceDir,
-      summary: 'Failed to parse AI response',
-      filesWritten: [],
-      notes: responseText.slice(0, 500),
-      provider,
-      model,
-    };
+    const repaired = tryRepairJSON(jsonText);
+    if (repaired !== null) {
+      parsed = repaired;
+      isPartial = true;
+    } else {
+      return {
+        variant,
+        sourceDir,
+        summary: 'Failed to parse AI response',
+        filesWritten: [],
+        notes: responseText.slice(0, 500),
+        provider,
+        model,
+      };
+    }
+  }
+
+  const summary = typeof parsed['summary'] === 'string' ? parsed['summary'] : 'Code generated';
+  let notes = typeof parsed['notes'] === 'string' ? parsed['notes'] : '';
+  if (isPartial) {
+    const warning = 'Response was truncated \u2014 some files may be missing from the output.';
+    notes = notes !== '' ? `${notes}\n${warning}` : warning;
+  }
+
+  const filesWritten: string[] = [];
+
+  if (Array.isArray(parsed['files'])) {
+    for (const f of parsed['files'] as GeneratedFile[]) {
+      if (typeof f.path !== 'string' || typeof f.content !== 'string') continue;
+
+      const targetPath = path.join(sourceDir, f.path);
+      const targetDir = path.dirname(targetPath);
+
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(targetPath, f.content);
+      filesWritten.push(f.path);
+    }
   }
 
   return {
@@ -240,4 +244,60 @@ Generate or update the code to implement this specification. Return complete fil
     provider,
     model,
   };
+}
+
+// ── JSON extraction and repair ──────────────────────────────────────
+
+function extractJSON(responseText: string): string {
+  let text = responseText.trim();
+
+  // Try complete code block first
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeBlockMatch?.[1] !== undefined) {
+    return codeBlockMatch[1].trim();
+  }
+
+  // Try unclosed code block (truncated response)
+  const openBlockMatch = text.match(/```(?:json)?\s*\n([\s\S]*)/);
+  if (openBlockMatch?.[1] !== undefined) {
+    text = openBlockMatch[1].trim();
+  }
+
+  // Strip preamble before the first {
+  const objectStart = text.indexOf('{');
+  if (objectStart > 0) {
+    text = text.slice(objectStart);
+  }
+
+  return text;
+}
+
+function tryRepairJSON(text: string): Record<string, unknown> | null {
+  // Try closing the truncated JSON with common suffixes
+  const closings = ['"}]}', '"}]\n}', '"]]}', '"]\n]\n}', ']}', ']\n}', '}'];
+
+  for (const closing of closings) {
+    try {
+      return JSON.parse(text + closing) as Record<string, unknown>;
+    } catch { /* try next */ }
+  }
+
+  // Search backwards for a } that, when followed by ]}, produces valid JSON.
+  // This finds the last complete file entry in a truncated files array.
+  let searchFrom = text.length;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const bracePos = text.lastIndexOf('}', searchFrom - 1);
+    if (bracePos <= 0) break;
+
+    const candidate = text.slice(0, bracePos + 1);
+    for (const closing of [']}', ']\n}', '\n]\n}']) {
+      try {
+        return JSON.parse(candidate + closing) as Record<string, unknown>;
+      } catch { /* try next */ }
+    }
+
+    searchFrom = bracePos;
+  }
+
+  return null;
 }
